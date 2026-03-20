@@ -1,0 +1,7 @@
+-DROS_BUILD_SHARED_LIBS=1
+-DROS_BUILD_SHARED_LIBS=1
+-DROS_PACKAGE_NAME="cav_traj_gen"
+-DROSCONSOLE_BACKEND_LOG4CXX
+-o
+/home/wangzhaoqing/avdp_path_planning_base/build/cav_traj_gen/src/GUI/widgets/3d_display/moc_display_3d.cpp
+/home/wangzhaoqing/avdp_path_planning_base/src/cav_traj_gen/src/GUI/widgets/3d_display/display_3d.h
