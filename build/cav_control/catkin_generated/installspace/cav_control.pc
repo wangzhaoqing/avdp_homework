@@ -1,0 +1,8 @@
+prefix=/home/wangzhaoqing/avdp_path_planning_base/install
+
+Name: cav_control
+Description: Description of cav_control
+Version: 2.1.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: cav_msgs

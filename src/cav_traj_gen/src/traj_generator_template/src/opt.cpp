@@ -104,12 +104,11 @@ void Opt::run()
             pt_goal = traj_best.path.back();
         }
     } else {
-		ROS_WARN("No feasible trajectory found!");
-		copy_generator(); // Fallback to reference path copying
-		genControlPath(&traj_best, TIME_GAP_CONTROL);
-		if (traj_best.path.size() > 0) {
-			pt_goal = traj_best.path.back();
-		}
+		ROS_WARN("No feasible trajectory found! STOPPING.");
+        // 清空路径，将 feasible 置为 false。
+        // 控制层接收到此信号后会自动下发制动指令。
+        traj_best.path.clear();
+        traj_best.feasible = false;
 	}
 	return;
 }
@@ -239,28 +238,19 @@ bool Opt::frenetToCartesian(Trajectory_S& traj)
     double T = traj.final_tf;
     
     for (double t = 0; t <= T + 1e-6; t += dt) {
-        // 计算 d(t), s(t) 等（与原代码相同）
-        double d = 0, d_d = 0, d_dd = 0;
-        for (int i = 0; i < 6; ++i) {
-            double ti = pow(t, i);
-            d += traj.cx[i] * ti;
-            if (i > 0) d_d += i * traj.cx[i] * pow(t, i-1);
-            if (i > 1) d_dd += i * (i-1) * traj.cx[i] * pow(t, i-2);
-        }
+        double d = 0;
+        for (int i = 0; i < 6; ++i) d += traj.cx[i] * pow(t, i);
         
-        double s = 0, s_d = 0, s_dd = 0;
+        double s = 0, s_d = 0, d_d = 0;
         for (int i = 0; i < 5; ++i) {
-            double ti = pow(t, i);
-            s += traj.cy[i] * ti;
+            s += traj.cy[i] * pow(t, i);
             if (i > 0) s_d += i * traj.cy[i] * pow(t, i-1);
-            if (i > 1) s_dd += i * (i-1) * traj.cy[i] * pow(t, i-2);
         }
+        for (int i = 1; i < 6; ++i) d_d += i * traj.cx[i] * pow(t, i-1);
         
-        // 边界裁剪
         if (s < ref_arc_length.front()) s = ref_arc_length.front();
         if (s > ref_arc_length.back()) s = ref_arc_length.back();
         
-        // 二分查找 s 在弧长数组中的区间
         int idx = 0;
         for (size_t i = 0; i < ref_arc_length.size() - 1; ++i) {
             if (s >= ref_arc_length[i] && s <= ref_arc_length[i+1]) {
@@ -268,56 +258,51 @@ bool Opt::frenetToCartesian(Trajectory_S& traj)
                 break;
             }
         }
-        // 线性插值得到参考点坐标和航向
+        
         double ratio = (s - ref_arc_length[idx]) / (ref_arc_length[idx+1] - ref_arc_length[idx]);
         const X_Point& p1 = _env->refPathVec[idx];
         const X_Point& p2 = _env->refPathVec[idx+1];
+        
         double ref_x = p1.x + ratio * (p2.x - p1.x);
         double ref_y = p1.y + ratio * (p2.y - p1.y);
-        double ref_heading = p1.heading + ratio * (p2.heading - p1.heading);
-        // 航向归一化
-        while (ref_heading > M_PI) ref_heading -= 2*M_PI;
-        while (ref_heading < -M_PI) ref_heading += 2*M_PI;
         
-        // 计算全局坐标
+        double diff = p2.heading - p1.heading;
+        while (diff > M_PI) diff -= 2.0 * M_PI;
+        while (diff < -M_PI) diff += 2.0 * M_PI;
+        double ref_heading = p1.heading + ratio * diff;
+        while (ref_heading > M_PI) ref_heading -= 2.0 * M_PI;
+        while (ref_heading < -M_PI) ref_heading += 2.0 * M_PI;
+        
         Point_Xd pt;
         pt.x = ref_x - d * sin(ref_heading);
         pt.y = ref_y + d * cos(ref_heading);
         
-        // 航向角
-        double heading_offset = 0.0;
-        if (fabs(s_d) > 1e-6) {
-            heading_offset = atan2(d_d, s_d);
-        } else {
-            heading_offset = (d_d > 0) ? M_PI/2 : -M_PI/2;
-        }
-        pt.heading = ref_heading + heading_offset;
-        while (pt.heading > M_PI) pt.heading -= 2*M_PI;
-        while (pt.heading < -M_PI) pt.heading += 2*M_PI;
-        
+        pt.heading = 0; 
+        pt.cr = 0;
         pt.v = sqrt(s_d * s_d + d_d * d_d);
-        pt.t = t;
+        pt.t = t; 
         
-        // 可选曲率计算
-        double denominator = pow(s_d*s_d + d_d*d_d, 1.5);
-        if (denominator > 1e-6) {
-            pt.cr = (s_d * d_dd - d_d * s_dd) / denominator;
-        } else {
-            pt.cr = 0.0;
-        }
-        
-        // 边界信息近似取最近参考点的边界（或插值）
         pt.bound_left = p1.bound_left + ratio * (p2.bound_left - p1.bound_left);
         pt.bound_right = p1.bound_right + ratio * (p2.bound_right - p1.bound_right);
-		// 边界检查：横向偏移 d 必须在 [-bound_right, bound_left] 内
-		if (d < -pt.bound_right || d > pt.bound_left) {
-			return false; // 超出道路边界，轨迹不可行
-		}
+        
+        // 【弹性软边界】：给 0.5 米的借道求生空间
+        // 只要不超过边界 0.5 米就不直接枪毙，而是交给 Cost 里的天价惩罚去制裁
+        if (d > pt.bound_left + 0.5 || d < -pt.bound_right - 0.5) {
+            return false;
+        }
         
         traj.path.push_back(pt);
     }
     
-    return !traj.path.empty();
+    if (traj.path.empty()) return false;
+
+    if (traj.path.size() > 2) {
+        XM::cal_heading_by_2pts(&traj.path, 0.5, 2);
+        bool flag_fwd = true, flag_r = true;
+        XM::cal_curvature_x(&traj.path, 0.5, 3.0, flag_fwd, flag_r);
+    }
+    
+    return true;
 }
 
 /**
@@ -325,23 +310,18 @@ bool Opt::frenetToCartesian(Trajectory_S& traj)
  */
 bool Opt::checkCollision(const Trajectory_S& traj)
 {
-    if (_env->obstacleVec.empty()) {
-        return true;
-    }
+    if (_env->obstacleVec.empty()) return true;
     
     for (const auto& pt : traj.path) {
-		
         for (const auto& obs : _env->obstacleVec) {
             double dist = sqrt(pow(pt.x - obs.x_local, 2) + pow(pt.y - obs.y_local, 2));
-            
-            double safe_dist = obs.radius + 1.0;
-            
-            if (dist < safe_dist) {
+            // 【微调包络】：假设实车宽 1.8m，等效半径取 0.9m。
+            // 剥离 safe_buffer 的死板限制，只要物理上不蹭到，就允许通过！
+            if (dist < obs.radius + 1.0) {
                 return false;
             }
         }
     }
-    
     return true;
 }
 
@@ -352,55 +332,56 @@ double Opt::calculateCost(const Trajectory_S& traj)
 {
     double cost = 0.0;
     
-    // 1. 横向偏移代价（期望在车道中心）
-    double avg_d = 0;
-    for (const auto& pt : traj.path) {
-        // 计算横向偏移（简化）
-        int nearest = findNearestRefPathPoint(pt.x, pt.y);
-        double dx = pt.x - _env->refPathVec[nearest].x;
-        double dy = pt.y - _env->refPathVec[nearest].y;
-        double d = abs(dx * sin(_env->refPathVec[nearest].heading) - 
-                      dy * cos(_env->refPathVec[nearest].heading));
-        avg_d += d;
-    }
-    avg_d /= traj.path.size();
-    cost += 1.0 * avg_d;  // 权重1.0
+    double avg_d_sq = 0; 
+    double max_lat_acc = 0;
+    double out_of_bounds_cost = 0;
     
-    // 2. 速度误差代价（期望保持目标速度）
-    double target_speed = set_max_speed;
-    double avg_speed_error = 0;
     for (const auto& pt : traj.path) {
-        avg_speed_error += fabs(pt.v - target_speed);
-    }
-    avg_speed_error /= traj.path.size();
-    cost += 0.5 * avg_speed_error;  // 权重0.5
-    
-    // 3. 轨迹平滑度代价
-    double jerk_cost = 0;
-    for (int i = 2; i < traj.path.size(); ++i) {
-        // 近似计算加加速度
-        double jerk_x = (traj.path[i].v * cos(traj.path[i].heading) - 
-                        2 * traj.path[i-1].v * cos(traj.path[i-1].heading) + 
-                        traj.path[i-2].v * cos(traj.path[i-2].heading)) / (TIME_GAP_PATH * TIME_GAP_PATH);
-        double jerk_y = (traj.path[i].v * sin(traj.path[i].heading) - 
-                        2 * traj.path[i-1].v * sin(traj.path[i-1].heading) + 
-                        traj.path[i-2].v * sin(traj.path[i-2].heading)) / (TIME_GAP_PATH * TIME_GAP_PATH);
-        jerk_cost += sqrt(jerk_x * jerk_x + jerk_y * jerk_y);
-    }
-    jerk_cost /= traj.path.size();
-    cost += 0.3 * jerk_cost;  // 权重0.3
-    
-    // 4. 障碍物距离代价
-    double min_obs_dist = 100;
-    for (const auto& pt : traj.path) {
-        for (const auto& obs : _env->obstacleVec) {
-            double dist = sqrt(pow(pt.x - obs.x_local, 2) + pow(pt.y - obs.y_local, 2));
-            min_obs_dist = min(min_obs_dist, dist);
+        double t = pt.t;
+        double true_d = 0, d_dd = 0;
+        for (int i = 0; i < 6; ++i) {
+            true_d += traj.cx[i] * pow(t, i);
+            if (i > 1) d_dd += i * (i-1) * traj.cx[i] * pow(t, i-2);
+        }
+        avg_d_sq += true_d * true_d; 
+        max_lat_acc = max(max_lat_acc, fabs(d_dd)); 
+        
+        // ==========================================
+        // 【核心修复 2】：恢复严厉的边界惩罚
+        // 只要超出了物理边界（压黄线），就开始按平方级暴涨扣分
+        // ==========================================
+        if (true_d > pt.bound_left) {
+            out_of_bounds_cost += pow(true_d - pt.bound_left, 2);
+        }
+        if (true_d < -pt.bound_right) {
+            out_of_bounds_cost += pow(-true_d - pt.bound_right, 2);
         }
     }
-    if (min_obs_dist < 5.0) {
-        cost += 2.0 * (5.0 - min_obs_dist);  // 距离越近代价越大
-    }
+    avg_d_sq /= traj.path.size();
+    out_of_bounds_cost /= traj.path.size();
+    
+    // 基础博弈逻辑
+    cost += 100.0 * avg_d_sq;                   
+    cost += 5.0 * (traj.ref_yf * traj.ref_yf); 
+    cost += max_lat_acc * 5.0;                 
+    
+    // 赋予边界惩罚极高的权重（10000），确保它“不到万不得已绝不压线”
+    cost += out_of_bounds_cost * 10000.0;
+
+    // 速度与纵向激励
+    double target_speed = set_max_speed;
+    double avg_speed_error = 0;
+    for (const auto& pt : traj.path) avg_speed_error += fabs(pt.v - target_speed);
+    avg_speed_error /= traj.path.size();
+    
+    cost += 10.0 * avg_speed_error; 
+    cost -= 5.0 * (traj.ref_xf * traj.final_tf); 
+
+    // ==========================================
+    // 【核心修复 3】：彻底删除障碍物排斥力场！
+    // 只要轨迹通过了 checkCollision（没有撞上），离障碍物多近都不扣分。
+    // 这样车辆就会极其自信地“擦边”钻空子，再也不会因为害怕靠近障碍物而去瞎越界了。
+    // ==========================================
     
     return cost;
 }

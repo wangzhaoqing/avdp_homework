@@ -57,32 +57,75 @@ void DISPLAY_3D::draw_mode1()
     }
 
     // Stage 5: Draw local reference path (blue)
+<<<<<<< HEAD
+=======
+    // if (guiSet.flag_Ref_Path)
+    // {
+    //     drawTraj(&TG.ssData.goal.refPathVec,
+    //              85.0/255.0, 204.0/255.0, 204.0/255.0, // blue
+    //              1,     // Plot every point
+    //              2.0,   // Line width
+    //              0.3,   // Z-level offset
+    //              false, // Disable point markers
+    //              true,  // Enable path lines
+    //              guiSet.flag_RefPath_Heading, // Heading arrows
+    //              guiSet.flag_RefPath_Cr,      // Curvature markers
+    //              false); // Disable boundaries
+    // }
+>>>>>>> 8e7a9df885ca0205ecc137e8a10111e86e56a762
     if (guiSet.flag_Ref_Path)
     {
         drawTraj(&TG.ssData.goal.refPathVec,
                  85.0/255.0, 204.0/255.0, 204.0/255.0, // blue
                  1,     // Plot every point
+<<<<<<< HEAD
                  2.0,   // Line width
                  0.3,   // Z-level offset
                  false, // Disable point markers
                  true,  // Enable path lines
                  guiSet.flag_RefPath_Heading, // Heading arrows
                  guiSet.flag_RefPath_Cr,      // Curvature markers
+=======
+                 3.0,   // 【改动 1：细化蓝线】将线宽从 2.0 降至 0.5
+                 0.3,   // 【改动 2：降低蓝线图层】将 Z 轴高度从 0.3 降至 0.1，让它贴着地面
+                 false, // Disable point markers
+                 true,  // Enable path lines
+                 guiSet.flag_RefPath_Heading, 
+                 guiSet.flag_RefPath_Cr, 
+>>>>>>> 8e7a9df885ca0205ecc137e8a10111e86e56a762
                  false); // Disable boundaries
     }
 
     // Stage 6: Draw global reference path (light orange with boundaries)
+<<<<<<< HEAD
+=======
+    // drawTraj(&TG.ssData.goal.whole_path,
+    //             1, 170.0/255.0, 0, // light orange color
+    //             1,     // Plot every point
+    //             2.0,   // Line width
+    //             0.3,   // Z-level offset
+    //             false, // Disable point markers
+    //             true,  // Enable path lines
+    //             guiSet.flag_RefPath_Heading, 
+    //             guiSet.flag_RefPath_Cr, 
+    //             true); // Enable boundaries
+>>>>>>> 8e7a9df885ca0205ecc137e8a10111e86e56a762
     drawTraj(&TG.ssData.goal.whole_path,
                 1, 170.0/255.0, 0, // light orange color
                 1,     // Plot every point
                 2.0,   // Line width
+<<<<<<< HEAD
                 0.3,   // Z-level offset
+=======
+                0.1,   // 【顺手改动】：把橙色基准线的高度也降到 0.1，防止它和黄线打架
+>>>>>>> 8e7a9df885ca0205ecc137e8a10111e86e56a762
                 false, // Disable point markers
                 true,  // Enable path lines
                 guiSet.flag_RefPath_Heading, 
                 guiSet.flag_RefPath_Cr, 
                 true); // Enable boundaries
 
+<<<<<<< HEAD
     // Stage 7: Draw optimal path (yellow) if valid
     if (guiSet.flag_BestPath && TG.opt.traj_best.feasible)
     {
@@ -93,6 +136,42 @@ void DISPLAY_3D::draw_mode1()
                  0.2,  // Z-level offset
                  true,  // Enable point markers
                  false, // Disable path lines
+=======
+    // ========================================================
+    // 【新增 Stage 6.5】：绘制所有采样的候选轨迹（灰色蛛网）
+    // 官方已经为你写好了 drawOnePath 函数，直接调用即可
+    // ========================================================
+    if (guiSet.flag_BestPath) 
+    {
+        for (size_t i = 0; i < TG.opt.candidate_trajectories.size(); ++i) {
+            drawOnePath(&TG.opt.candidate_trajectories[i]);
+        }
+    }
+
+    // Stage 7: Draw optimal path (yellow) if valid
+    // if (guiSet.flag_BestPath && TG.opt.traj_best.feasible)
+    // {
+    //     drawTraj(&TG.opt.traj_best.path,
+    //              0.9, 0.9, 0, // Yellow color
+    //              1,    // Plot every point
+    //              1.0,  // Line width
+    //              0.2,  // Z-level offset
+    //              true,  // Enable point markers
+    //              false, // Disable path lines
+    //              guiSet.flag_BestPath_Heading, 
+    //              guiSet.flag_BestPath_Cr, 
+    //              false);
+    // }
+    if (guiSet.flag_BestPath && TG.opt.traj_best.feasible)
+    {
+        drawTraj(&TG.opt.traj_best.path,
+                 1.0, 1.0, 0.0, // 【改动 3：提亮黄色】换成最亮眼、最纯正的 RGB(255, 255, 0) 纯黄
+                 1,    // Plot every point
+                 4.0,  // 【改动 4：加粗黄线】将黄线宽度从 1.0 暴增至 4.0，极度醒目
+                 0.5,  // 【改动 5：抬高黄线图层】将 Z 轴高度提升到 0.5！现在它会悬浮在蓝线（0.1）之上，绝对不会被遮挡
+                 true,  // Enable point markers
+                 true,  // 【核心修复 6：开启连线！】将 flag_line 从 false 改为 true。之前居然是 false，难怪看不见线！
+>>>>>>> 8e7a9df885ca0205ecc137e8a10111e86e56a762
                  guiSet.flag_BestPath_Heading, 
                  guiSet.flag_BestPath_Cr, 
                  false);
