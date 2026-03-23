@@ -1,0 +1,92 @@
+# Compiled object files
+*.o
+*.obj
+*.lo
+*.la
+*.al
+*.libs
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# Qt
+*.moc
+*.qrc
+*.rcc
+*.pro.user
+*.pro.user.*
+*.qmake.stash
+
+# Visual Studio
+*.vcxproj*
+*.sln
+*.vcproj*
+*.ncb
+*.sdf
+*.opensdf
+*.vcxproj.filters
+ipch/
+*.aps
+*.user
+*.suo
+
+# Code::Blocks
+*.cbp
+*.depend
+*.layout
+
+# CLion
+.idea/
+cmake-build-*/
+
+# Other
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+*.gcda
+*.gcno
+*.gcov
+
+# Backup files
+*.bak
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+
+build/
