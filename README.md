@@ -4,7 +4,5 @@ JJLin  2026/3/23
 * 合并了分支
 * 添加了gitignore
 ### TODO
-```cpp
-bool Opt::checkCollision()
-double Opt::calculateCost()
-```
+编译测试
+修改函数细节
