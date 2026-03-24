@@ -85,10 +85,6 @@ Thumbs.db
 *.bak
 *.tmp
 
-# Python
-__pycache__/
-*.pyc
-
 build/
 dist/
 *.egg-info/
