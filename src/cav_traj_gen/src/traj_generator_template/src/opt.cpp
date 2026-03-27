@@ -64,24 +64,15 @@ void Opt::run()
 	ROS_INFO("Current state: x=%.2f, y=%.2f, heading=%.2f, speed_x=%.2f, acc_x=%.2f, yaw_rate=%.2f", 
 			 _env->x, _env->y, _env->heading, _env->speed_x, _env->acc_x, _env->yaw_rate);
 	/*****************************************************************************/
-    ref_arc_length.clear();
-    if (!_env->refPathVec.empty()) {
-        ref_arc_length.push_back(0.0);
-        for (size_t i = 1; i < _env->refPathVec.size(); ++i) {
-            double dx = _env->refPathVec[i].x - _env->refPathVec[i-1].x;
-            double dy = _env->refPathVec[i].y - _env->refPathVec[i-1].y;
-            double dist = sqrt(dx*dx + dy*dy);
-            ref_arc_length.push_back(ref_arc_length.back() + dist);
-        }
-    }
+    updateRefArcLength();
 	// 1. Aciquire current Frenet state of the ego vehicle
-    FrenetState current_state = getCurrentFrenetState();
+    FrenetState start_state = getStartFrenetState();
 	ROS_INFO("Current Frenet state: s=%.2f, s_d=%.2f, d=%.2f, d_d=%.2f", 
-			 current_state.s, current_state.s_d, current_state.d, current_state.d_d);
+			 start_state.s, start_state.s_d, start_state.d, start_state.d_d);
     
     // 2. Generate candidate trajectories based on current Frenet state and sampling parameters
     candidate_trajectories.clear();
-    generateCandidateTrajectories(current_state);
+    generateCandidateTrajectories(start_state);
 	ROS_INFO("%lu/%d trajectories feasible", candidate_trajectories.size(), sample_params.d_samples * sample_params.v_samples * sample_params.T_samples);
     
     // 3. Select the best trajectory from the candidate set based on the calculated cost
@@ -114,12 +105,28 @@ void Opt::run()
 }
 
 
+void Opt::updateRefArcLength(){
+    ref_arc_length.clear();
+    
+    if (!_env->refPathVec.empty()) {
+        ref_arc_length.push_back(0.0);
+        for (size_t i = 1; i < _env->refPathVec.size(); ++i) {
+            double dx = _env->refPathVec[i].x - _env->refPathVec[i-1].x;
+            double dy = _env->refPathVec[i].y - _env->refPathVec[i-1].y;
+            double dist = sqrt(dx*dx + dy*dy);
+            ref_arc_length.push_back(ref_arc_length.back() + dist);
+        }
+    }
+}
+
+
+
 /**
  * @brief get current Frenet state of the ego vehicle
  * @return FrenetState struct containing s, s_d, s_dd, d, d
 */
 
-Opt::FrenetState Opt::getCurrentFrenetState()
+Opt::FrenetState Opt::getStartFrenetState()
 {
     FrenetState state;
     int nearest_idx = findNearestRefPathPoint(_env->x, _env->y);
@@ -144,7 +151,7 @@ Opt::FrenetState Opt::getCurrentFrenetState()
 /**
  * @brief generate candidate trajectories based on current Frenet state and sampling parameters
  */
-void Opt::generateCandidateTrajectories(FrenetState current_state)
+void Opt::generateCandidateTrajectories(FrenetState start_state)
 {
     // walk through all combinations of sampling parameters (Deterministic sampling)
     for (double d_target : sample_params.d_targets) {
@@ -153,7 +160,7 @@ void Opt::generateCandidateTrajectories(FrenetState current_state)
                 
                 Trajectory_S traj;
                 
-                generateFrenetTrajectory(current_state, d_target, s_dot_target, T_target, traj);
+                generateFrenetTrajectory(start_state, d_target, s_dot_target, T_target, traj);
                 
                 if (!frenetToCartesian(traj)) {
                     continue;
@@ -224,6 +231,53 @@ void Opt::generateFrenetTrajectory(const FrenetState& start,
     traj.final_tf = T;
     traj.ref_xf = s_dot_target;
     traj.ref_yf = d_target;
+}
+
+/**
+ * @brief Frenet to Cartesian conversion for a single point. This function converts a Frenet state into a Cartesian point.
+ */
+Point_Xd Opt::frenetToCartesian(const FrenetState& frenet_state)
+{
+    Point_Xd pt;
+    
+    double s = frenet_state.s;
+    double d = frenet_state.d;
+    
+    if (s < ref_arc_length.front()) s = ref_arc_length.front();
+    if (s > ref_arc_length.back()) s = ref_arc_length.back();
+    
+    int idx = 0;
+    for (size_t i = 0; i < ref_arc_length.size() - 1; ++i) {
+        if (s >= ref_arc_length[i] && s <= ref_arc_length[i+1]) {
+            idx = i;
+            break;
+        }
+    }
+    
+    double ratio = (s - ref_arc_length[idx]) / (ref_arc_length[idx+1] - ref_arc_length[idx]);
+    const X_Point& p1 = _env->refPathVec[idx];
+    const X_Point& p2 = _env->refPathVec[idx+1];
+    
+    double ref_x = p1.x + ratio * (p2.x - p1.x);
+    double ref_y = p1.y + ratio * (p2.y - p1.y);
+    
+    double diff = p2.heading - p1.heading;
+    while (diff > M_PI) diff -= 2.0 * M_PI;
+    while (diff < -M_PI) diff += 2.0 * M_PI;
+    double ref_heading = p1.heading + ratio * diff;
+    while (ref_heading > M_PI) ref_heading -= 2.0 * M_PI;
+    while (ref_heading < -M_PI) ref_heading += 2.0 * M_PI;
+    
+    pt.x = ref_x - d * sin(ref_heading);
+    pt.y = ref_y + d * cos(ref_heading);
+    pt.heading = ref_heading;
+    pt.v = frenet_state.s_d;
+    pt.t = 0.0;  // Single point, time not relevant
+    
+    pt.bound_left = p1.bound_left + ratio * (p2.bound_left - p1.bound_left);
+    pt.bound_right = p1.bound_right + ratio * (p2.bound_right - p1.bound_right);
+    
+    return pt;
 }
 
 /**

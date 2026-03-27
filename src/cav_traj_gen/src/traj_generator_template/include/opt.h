@@ -236,13 +236,15 @@ private:
     // std::vector<Trajectory_S> candidate_trajectories;
     
     // Utility functions
-    FrenetState getCurrentFrenetState();
-    void generateCandidateTrajectories(FrenetState current_state);
+    void updateRefArcLength();
+    FrenetState getStartFrenetState();
+    void generateCandidateTrajectories(FrenetState start_state);
     void generateFrenetTrajectory(const FrenetState& start, 
                                   double d_target, 
                                   double s_dot_target, 
                                   double T_target,
                                   Trajectory_S& traj);
+    Point_Xd frenetToCartesian(const FrenetState& frenet_state);
     bool frenetToCartesian(Trajectory_S& traj);
     bool checkCollision(const Trajectory_S& traj);
     double calculateCost(const Trajectory_S& traj);

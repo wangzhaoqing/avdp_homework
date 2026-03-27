@@ -1,0 +1,31 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/jjlin/下载/avdp_homework/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14",
+      "configurationProvider": "ms-vscode.cmake-tools",
+      "includePath": [
+                "src/cav_control/include", 
+                "src/cav_traj_gen/include",
+                "src/cav_control/src", 
+                "src/cav_traj_gen/src/traj_generator_template/include",
+                "/usr/include/c++/11",                 // 编译器标准库（根据实际路径）
+                "/usr/include/x86_64-linux-gnu/c++/11"
+            ],
+      
+    }
+  ],
+  "version": 4
+}
