@@ -132,14 +132,13 @@ class Trajectory_S
 class Opt
 {
 public:
-    // 【新增】：实车真实体型参数
-    double ego_radius = 1.0;   // 车辆等效半径 (实车宽2m，半径取1m)
-    double safe_buffer = 0.2;  // 极限贴边时的安全死区
+    double ego_radius = 1.0;
+    double safe_buffer = 0.2;
 
     // constructor
     Opt()
     {
-        // 1. 拓宽横向探索空间并加密，确保能找准狭窄缝隙
+
         sample_params.d_min = -4.0; 
         sample_params.d_max = 4.0;
         sample_params.d_samples = 33; 
@@ -148,9 +147,7 @@ public:
         sample_params.v_max = 8.0;
         sample_params.v_samples = 8; 
         
-        // 2. 【核心改动】：拉长上帝视角（长距离规划）
-        // 废除 2.0 秒的短视规划，强制系统至少向未来规划 3.0 ~ 6.0 秒
-        // 这会让轨迹像水流一样，在极远的地方就开始产生平缓的偏折
+
         sample_params.T_min = 3.0; 
         sample_params.T_max = 6.0; 
         sample_params.T_samples = 4;
@@ -167,7 +164,7 @@ public:
     /// This data structure should not be changed. Do remember to fill it after your planning.
     Trajectory_S traj_best;
 
-    // 【新增】：将候选轨迹集暴露给外部 GUI 进行渲染
+
     std::vector<Trajectory_S> candidate_trajectories;
 
     /// @brief [Example] The goal point for trajectory optimization.

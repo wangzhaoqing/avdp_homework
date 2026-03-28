@@ -13,10 +13,10 @@
 #include "opt.h"
 using namespace std;
 
-// 将角度归一化到 [-M_PI, M_PI] 区间
+
 double normalizeAngle(double angle) {
-    angle = fmod(angle, 2.0 * M_PI);       // 取模，范围在 [0, 2π)
-    if (angle > M_PI) angle -= 2.0 * M_PI; // 转换到 [-π, π]
+    angle = fmod(angle, 2.0 * M_PI);       
+    if (angle > M_PI) angle -= 2.0 * M_PI; 
     if (angle < -M_PI) angle += 2.0 * M_PI;
     return angle;
 }
@@ -114,8 +114,7 @@ void Opt::run()
         }
     } else {
 		ROS_WARN("No feasible trajectory found! STOPPING.");
-        // 清空路径，将 feasible 置为 false。
-        // 控制层接收到此信号后会自动下发制动指令。
+
         traj_best.path.clear();
         traj_best.feasible = false;
 	}
@@ -358,8 +357,6 @@ bool Opt::frenetToCartesian(Trajectory_S& traj)
         pt.bound_left = p1.bound_left + ratio * (p2.bound_left - p1.bound_left);
         pt.bound_right = p1.bound_right + ratio * (p2.bound_right - p1.bound_right);
         
-        // 【弹性软边界】：给 0.5 米的借道求生空间
-        // 只要不超过边界 0.5 米就不直接枪毙，而是交给 Cost 里的天价惩罚去制裁
         if (d > pt.bound_left + 0.5 || d < -pt.bound_right - 0.5) {
             return false;
         }
@@ -388,8 +385,6 @@ bool Opt::checkCollision(const Trajectory_S& traj)
     for (const auto& pt : traj.path) {
         for (const auto& obs : _env->obstacleVec) {
             double dist = sqrt(pow(pt.x - obs.x_local, 2) + pow(pt.y - obs.y_local, 2));
-            // 【微调包络】：假设实车宽 1.8m，等效半径取 0.9m。
-            // 剥离 safe_buffer 的死板限制，只要物理上不蹭到，就允许通过！
             if (dist < obs.radius + 1.0) {
                 return false;
             }
@@ -419,10 +414,6 @@ double Opt::calculateCost(const Trajectory_S& traj)
         avg_d_sq += true_d * true_d; 
         max_lat_acc = max(max_lat_acc, fabs(d_dd)); 
         
-        // ==========================================
-        // 【核心修复 2】：恢复严厉的边界惩罚
-        // 只要超出了物理边界（压黄线），就开始按平方级暴涨扣分
-        // ==========================================
         if (true_d > pt.bound_left) {
             out_of_bounds_cost += pow(true_d - pt.bound_left, 2);
         }
@@ -433,28 +424,23 @@ double Opt::calculateCost(const Trajectory_S& traj)
     avg_d_sq /= traj.path.size();
     out_of_bounds_cost /= traj.path.size();
     
-    // 基础博弈逻辑
-    cost += 100.0 * avg_d_sq;                   
+
+    cost += 10.0 * avg_d_sq;                   
     cost += 5.0 * (traj.ref_yf * traj.ref_yf); 
     cost += max_lat_acc * 5.0;                 
     
-    // 赋予边界惩罚极高的权重（10000），确保它“不到万不得已绝不压线”
-    cost += out_of_bounds_cost * 10000.0;
 
-    // 速度与纵向激励
+    cost += out_of_bounds_cost * 5000.0;
+
+
     double target_speed = set_max_speed;
     double avg_speed_error = 0;
     for (const auto& pt : traj.path) avg_speed_error += fabs(pt.v - target_speed);
     avg_speed_error /= traj.path.size();
     
-    cost += 10.0 * avg_speed_error; 
+    cost += 35.0 * avg_speed_error; 
     cost -= 5.0 * (traj.ref_xf * traj.final_tf); 
 
-    // ==========================================
-    // 【核心修复 3】：彻底删除障碍物排斥力场！
-    // 只要轨迹通过了 checkCollision（没有撞上），离障碍物多近都不扣分。
-    // 这样车辆就会极其自信地“擦边”钻空子，再也不会因为害怕靠近障碍物而去瞎越界了。
-    // ==========================================
     
     return cost;
 }
