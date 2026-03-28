@@ -13,6 +13,14 @@
 #include "opt.h"
 using namespace std;
 
+// 将角度归一化到 [-M_PI, M_PI] 区间
+double normalizeAngle(double angle) {
+    angle = fmod(angle, 2.0 * M_PI);       // 取模，范围在 [0, 2π)
+    if (angle > M_PI) angle -= 2.0 * M_PI; // 转换到 [-π, π]
+    if (angle < -M_PI) angle += 2.0 * M_PI;
+    return angle;
+}
+
 /**
  * @brief The init function for trajectory optimization class.
  * @todo In this function, you need to initialize the planning environment 
@@ -66,8 +74,18 @@ void Opt::run()
 	/*****************************************************************************/
     updateRefArcLength();
 	// 1. Aciquire current Frenet state of the ego vehicle
-    FrenetState start_state = getStartFrenetState();
-	ROS_INFO("Current Frenet state: s=%.2f, s_d=%.2f, d=%.2f, d_d=%.2f", 
+    FrenetState start_state;
+    Point_Xd start_point;
+    bool stitched = getStitchedStartState(start_state, start_point);
+
+    if (!stitched) {
+        start_state = getCurrentFrenetState();
+        ROS_INFO("!!!Replanning...");
+    } else {
+        ROS_INFO("Stitched from previous trajectory at (%.2f, %.2f), t=%.2f",
+                 start_point.x, start_point.y, start_point.t);
+    }
+	ROS_INFO("Start Frenet state: s=%.2f, s_d=%.2f, d=%.2f, d_d=%.2f", 
 			 start_state.s, start_state.s_d, start_state.d, start_state.d_d);
     
     // 2. Generate candidate trajectories based on current Frenet state and sampling parameters
@@ -101,6 +119,8 @@ void Opt::run()
         traj_best.path.clear();
         traj_best.feasible = false;
 	}
+    last_planning_time = ros::Time::now().toSec();
+    last_traj_best_ = traj_best;
 	return;
 }
 
@@ -119,14 +139,12 @@ void Opt::updateRefArcLength(){
     }
 }
 
-
-
 /**
  * @brief get current Frenet state of the ego vehicle
  * @return FrenetState struct containing s, s_d, s_dd, d, d
 */
 
-Opt::FrenetState Opt::getStartFrenetState()
+Opt::FrenetState Opt::getCurrentFrenetState()
 {
     FrenetState state;
     int nearest_idx = findNearestRefPathPoint(_env->x, _env->y);
@@ -151,8 +169,9 @@ Opt::FrenetState Opt::getStartFrenetState()
 /**
  * @brief generate candidate trajectories based on current Frenet state and sampling parameters
  */
-void Opt::generateCandidateTrajectories(FrenetState start_state)
+void Opt::generateCandidateTrajectories(const FrenetState &start_state)
 {
+    candidate_trajectories.clear();
     // walk through all combinations of sampling parameters (Deterministic sampling)
     for (double d_target : sample_params.d_targets) {
         for (double s_dot_target : sample_params.s_dot_targets) {
@@ -542,5 +561,90 @@ void Opt::copy_generator()
 	}
 	traj_best.feasible = true;
 
+}
+
+bool Opt::findPointAtTime(const Trajectory_S &traj, double time, Point_Xd &point) const {
+    if (traj.path.empty() || time < traj.path.front().t || time > traj.path.back().t) {
+        return false;
+    }
+    for (size_t i = 0; i < traj.path.size() - 1; ++i) {
+        const auto &p1 = traj.path[i];
+        const auto &p2 = traj.path[i+1];
+        // ROS_INFO("%.2f %.2f", p1.t, p2.t);
+        if (p1.t <= time && p2.t >= time) {
+            double ratio = (time - p1.t) / (p2.t - p1.t);
+            point.x = p1.x + ratio * (p2.x - p1.x);
+            point.y = p1.y + ratio * (p2.y - p1.y);
+            point.heading = p1.heading + ratio * 
+                normalizeAngle(p2.heading - p1.heading);
+            point.v = p1.v + ratio * (p2.v - p1.v);
+            point.mileage = p1.mileage + ratio * (p2.mileage - p1.mileage);
+            point.t = time;
+            return true;
+        }
+    }
+    return false;
+}
+
+double Opt::calculateLateralError(double x, double y, const Point_Xd &ref) const {
+    double dx = x - ref.x;
+    double dy = y - ref.y;
+    return fabs(-dx * sin(ref.heading) + dy * cos(ref.heading));
+}
+
+Opt::FrenetState Opt::frenetFromCartesian(double x, double y, double heading,
+                                          double vx, double vy, double ax, double ay) {
+    FrenetState state;
+    int nearest_idx = findNearestRefPathPoint(x, y);
+    const X_Point &ref = _env->refPathVec[nearest_idx];
+
+    double dx = x - ref.x;
+    double dy = y - ref.y;
+    double proj = dx * cos(ref.heading) + dy * sin(ref.heading);
+    state.s = ref_arc_length[nearest_idx] + proj;
+
+    state.d = -dx * sin(ref.heading) + dy * cos(ref.heading);
+
+    double cos_theta = cos(ref.heading - heading);
+    state.s_d = vx * cos_theta;
+    state.d_d = vx * sin(heading - ref.heading);
+
+    state.s_dd = ax * cos_theta;
+    state.d_dd = ax * sin(heading - ref.heading);
+
+    return state;
+}
+
+bool Opt::getStitchedStartState(FrenetState &start_state, Point_Xd &start_point) {
+    if (!last_traj_best_.feasible || last_traj_best_.path.empty()) {
+        return false;
+    }
+
+    double now = ros::Time::now().toSec();
+    double target_time = now - last_planning_time;  // 0.04s
+
+    if (!findPointAtTime(last_traj_best_, target_time, start_point)) {
+        ROS_INFO("No point at %.2f", target_time);
+        return false;
+    }
+
+    double lateral_err = calculateLateralError(_env->x, _env->y, start_point);
+    double dx = start_point.x - _env->x;
+    double dy = start_point.y - _env->y;
+    double longitudinal_err = sqrt(dx*dx + dy*dy) * cos(_env->heading - atan2(dy, dx));
+    longitudinal_err = fabs(longitudinal_err);
+
+    if (lateral_err > stitch_params_.max_lateral_error ||
+        longitudinal_err > stitch_params_.max_longitudinal_error) {
+        ROS_WARN("Stitching rejected: lateral_err=%.2f, longitudinal_err=%.2f",
+                 lateral_err, longitudinal_err);
+        return false;
+    }
+
+    double vx = start_point.v * cos(start_point.heading);
+    double vy = start_point.v * sin(start_point.heading);
+    start_state = frenetFromCartesian(start_point.x, start_point.y, start_point.heading,
+                                      vx, vy, 0.0, 0.0);
+    return true;
 }
 

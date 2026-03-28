@@ -156,6 +156,7 @@ public:
         sample_params.T_samples = 4;
         
         candidate_trajectories.clear();
+        last_planning_time = 0;
     };
     ~Opt(){};
     
@@ -195,6 +196,14 @@ private:
     /// @brief The planning environment for trajectory optimization. 
     /// This pointer should point to the global planning environment in data pool DataPool.
     PlanningEnv_S *_env = NULL;
+
+    Trajectory_S last_traj_best_;
+    double last_planning_time;
+    struct StitchParams {
+        double max_lateral_error = 0.1;
+        double max_longitudinal_error = 0.5;
+        double max_time_gap = 0.2;
+    } stitch_params_;
 
     void copy_generator();
 
@@ -237,8 +246,13 @@ private:
     
     // Utility functions
     void updateRefArcLength();
-    FrenetState getStartFrenetState();
-    void generateCandidateTrajectories(FrenetState start_state);
+    bool getStitchedStartState(FrenetState &start_state, Point_Xd &start_point);
+    bool findPointAtTime(const Trajectory_S &traj, double time, Point_Xd &point) const;
+    double calculateLateralError(double x, double y, const Point_Xd &ref) const;
+    FrenetState frenetFromCartesian(double x, double y, double heading, 
+                                    double vx, double vy, double ax, double ay);
+    FrenetState getCurrentFrenetState();
+    void generateCandidateTrajectories(const FrenetState &start_state);
     void generateFrenetTrajectory(const FrenetState& start, 
                                   double d_target, 
                                   double s_dot_target, 
